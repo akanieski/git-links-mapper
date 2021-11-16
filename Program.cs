@@ -18,7 +18,7 @@ namespace git_links_mapper
         public string SourceOrgPat { get; set; }
         public string TargetOrgPat { get; set; }
         public string TargetProjectName { get; set; }
-        public string TargetAreaPath { get; set; } //CCL Enterprise DevOps\Guest Operations
+        public string TargetAreaPath { get; set; }
     }
     class Program
     {
@@ -74,7 +74,7 @@ namespace git_links_mapper
                         if (relation.Url.StartsWith(gitArtifactPrefix))
                         {
                             // It's a git link.. let's figure out the mapping
-                            // ie. vstfs:///Git/PullRequestId/9cc50793-cbfa-43ed-a3e5-5dc2ab8d1010%2f46fe0a33-28cc-404c-b5d3-feec74d95abe%2f5938
+                            // ie. vstfs:///Git/PullRequestId/9cc50893-cbfa-43ed-a3e5-5dc2ab8d1010%2f46fe0a34-28cc-404c-b5d3-feec74d95abe%2f5938
                             var gitLinkType = relation.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Skip(2).FirstOrDefault();
                             var split = relation.Url.Split('/').Last().Split(new string[] { "%2f", "%2F" }, StringSplitOptions.RemoveEmptyEntries);
                             var projectId = split.Take(1).FirstOrDefault();
@@ -143,7 +143,7 @@ namespace git_links_mapper
                         Console.WriteLine($"      Removing [{jsonPatchDoc.Count(x => x.Operation == Operation.Remove)}] relations.");
                         Console.WriteLine($"      Adding [{jsonPatchDoc.Count(x => x.Operation == Operation.Add)}] relations.");
 
-                        await targetWorkItemClient.UpdateWorkItemAsync(jsonPatchDoc, workItem.Id, bypassRules: true, suppressNotifications: true);
+                        await targetWorkItemClient.UpdateWorkItemAsync(jsonPatchDoc, workItem.Id.Value, bypassRules: true, suppressNotifications: true);
 
                     }
                 }
