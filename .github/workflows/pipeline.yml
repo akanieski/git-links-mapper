@@ -14,7 +14,7 @@ jobs:
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 6.0
+          dotnet-version: 6.0.*
       - run: dotnet publish --runtime win-x64 --self-contained
       - name: Create Archive for Release
         id: create_archive
