@@ -12,3 +12,34 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v2
       - run: dotnet publish --runtime win-x64 --self-contained
+      - name: Create Archive for Release
+        id: create_archive
+        working-directory: ./bin/Debug/net6.0/win-x64/publish
+        run: |
+          file=GitLinksMapper_$(date "+%Y-%m-%d").zip
+          path=../../../../../$file
+          zip -r $path .
+          echo "::set-output name=package::$file"
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_archive.outputs.package }}
+          release_name: ${{ steps.create_archive.outputs.package }}
+          body: Latest Build
+          draft: false
+          prerelease: false
+          
+      - name: Upload Release Asset (x64)
+        id: upload-release-asset-x64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ steps.create_archive.outputs.package }}
+          asset_name: ${{ steps.create_archive.outputs.package }}
+          asset_content_type: application/zip
