@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.TeamFoundation.Core.WebApi;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
@@ -22,6 +24,7 @@ namespace git_links_mapper
     }
     class Program
     {
+        static int BATCH_SIZE = 1000;
         static async Task Main(string[] args)
         {
             Config config = ParseConfig(args);
@@ -29,12 +32,18 @@ namespace git_links_mapper
             var sourceConnection = new VssConnection(new Uri(config.SourceOrgUrl), new Microsoft.VisualStudio.Services.Common.VssBasicCredential("System Migrator", config.SourceOrgPat));
             var targetConnection = new VssConnection(new Uri(config.TargetOrgUrl), new Microsoft.VisualStudio.Services.Common.VssBasicCredential("System Migrator", config.TargetOrgPat));
 
+            var targetProjectClient = targetConnection.GetClient<ProjectHttpClient>();
             var targetWorkItemClient = targetConnection.GetClient<WorkItemTrackingHttpClient>();
             var sourceGitClient = sourceConnection.GetClient<GitHttpClient>();
             var targetGitClient = targetConnection.GetClient<GitHttpClient>();
 
-            var queryForItems = new Wiql();
-            queryForItems.Query = @$"
+            int currentId = 0;
+            bool hasMore = true;
+
+            while (hasMore)
+            {
+                var queryForItems = new Wiql();
+                queryForItems.Query = @$"
                 SELECT
                     [System.Id],
                     [System.WorkItemType],
@@ -45,106 +54,210 @@ namespace git_links_mapper
                 FROM workitems
                 WHERE
                     [System.TeamProject] = @project
+                    AND [System.ID] > {currentId}
                     AND [System.ExternalLinkCount] > 0
                     AND [Custom.ReflectedWorkItemId] <> ''
                     AND [System.AreaPath] UNDER '{config.TargetAreaPath}'
                 ORDER BY [System.Id]
             ";
 
-            // Let's get target work items
-            var workItemIds = await targetWorkItemClient.QueryByWiqlAsync(queryForItems, project: config.TargetProjectName, top: 19999);
-            var targetRepos = await targetGitClient.GetRepositoriesAsync(config.TargetProjectName);
-            var sourceRepos = await sourceGitClient.GetRepositoriesAsync();
+                // Let's get target work items
+                var workItemIds = await targetWorkItemClient.QueryByWiqlAsync(queryForItems, project: config.TargetProjectName, top: BATCH_SIZE);
+                hasMore = workItemIds.WorkItems.Count() == BATCH_SIZE;
 
-            Console.WriteLine($"Found [{workItemIds.WorkItems.Count()}] work items in project [{config.TargetProjectName}] that contain external links and were migrated..");
+                var targetProjects = await targetProjectClient.GetProjects();
+                var targetRepos = await targetGitClient.GetRepositoriesAsync();
+                var sourceRepos = await sourceGitClient.GetRepositoriesAsync();
 
-            foreach (var result in workItemIds.WorkItems)
-            {
-                //Console.WriteLine($"    [{result.Id}] - Starting mapping");
+                Console.WriteLine($"Processing batch of [{workItemIds.WorkItems.Count()}] work items in project [{config.TargetProjectName}] that contain external links and were migrated..");
 
-                var workItem = await targetWorkItemClient.GetWorkItemAsync(result.Id, expand: WorkItemExpand.All);
-                JsonPatchDocument jsonPatchDoc = new JsonPatchDocument();
-
-                if (workItem.Relations != null && workItem.Relations.Count > 0)
+                foreach (var result in workItemIds.WorkItems)
                 {
-                    var relIx = 0;
-                    foreach (var relation in workItem.Relations)
+                    var workItem = await targetWorkItemClient.GetWorkItemAsync(result.Id, expand: WorkItemExpand.All);
+                    JsonPatchDocument jsonPatchDoc = new JsonPatchDocument();
+
+                    if (workItem.Relations != null && workItem.Relations.Count > 0)
                     {
-                        var gitArtifactPrefix = "vstfs:///Git/";
-                        if (relation.Url.StartsWith(gitArtifactPrefix))
+                        var relIx = 0;
+                        foreach (var relation in workItem.Relations)
                         {
-                            // It's a git link.. let's figure out the mapping
-                            // ie. vstfs:///Git/PullRequestId/9cc50893-cbfa-43ed-a3e5-5dc2ab8d1010%2f46fe0a34-28cc-404c-b5d3-feec74d95abe%2f5938
-                            var gitLinkType = relation.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Skip(2).FirstOrDefault();
-                            var split = relation.Url.Split('/').Last().Split(new string[] { "%2f", "%2F" }, StringSplitOptions.RemoveEmptyEntries);
-                            var projectId = split.Take(1).FirstOrDefault();
-                            var repoId = split.Skip(1).Take(1).FirstOrDefault();
-                            var refId = string.Join('/', split.Skip(2));
+                            var gitArtifactPrefix = "vstfs:///Git/";
+                            if (relation.Url.StartsWith(gitArtifactPrefix))
+                            {
+                                // It's a git link.. let's figure out the mapping
+                                // ie. vstfs:///Git/PullRequestId/9cc50893-cbfa-43ed-a3e5-5dc2ab8d1010%2f46fe0a34-28cc-404c-b5d3-feec74d95abe%2f5938
+                                var gitLinkType = relation.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Skip(2).FirstOrDefault();
+                                var split = relation.Url.Split('/').Last().Split(new string[] { "%2f", "%2F" }, StringSplitOptions.RemoveEmptyEntries);
+                                var projectId = split.Take(1).FirstOrDefault();
+                                var repoId = split.Skip(1).Take(1).FirstOrDefault();
+                                var refId = string.Join('/', split.Skip(2));
 
-                            GitRepository sourceRepo = null;
-                            GitRepository targetRepo = null;
+                                if (gitLinkType.ToLower() == "pullrequestid")
+                                {
+                                    #region Handle Pull Request based git links ..
 
+                                    var pr = await sourceGitClient.GetPullRequestAsync(projectId, repoId, int.Parse(refId), 999, includeCommits: true, includeWorkItemRefs: true);
+                                    var attachmentRef = await targetWorkItemClient.CreateAttachmentAsync(
+                                        new System.IO.MemoryStream(System.Text.Encoding.ASCII.GetBytes(System.Text.Json.JsonSerializer.Serialize(pr))),
+                                        fileName: $"pr-summary-{refId}.json",
+                                        uploadType: "Simple");
+                                    jsonPatchDoc.Add(new JsonPatchOperation()
+                                    {
+                                        Operation = Operation.Remove,
+                                        Path = $"/relations/{relIx}"
+                                    });
+                                    jsonPatchDoc.Add(new JsonPatchOperation(){
+                                        Operation = Operation.Add,
+                                        Path = "/relations/-",
+                                        Value = new WorkItemRelation()
+                                            {
+                                                Rel = "AttachedFile",
+                                                Url = attachmentRef.Url,
+                                                Attributes = new Dictionary<string, object>() {
+                                                    {"comment", $"PR Summary Migrated From Source PR #{refId}"}
+                                                }
+                                            }
+                                    });
+                                    continue;
+                                    #endregion
+                                }
+                                else
+                                {
+                                    #region Handle Branch/Commit based git links ..
+                                    if (targetProjects.Any(x => x.Id.ToString().Equals(projectId, StringComparison.Ordinal)))
+                                    {
+                                        // repo already exists on target.. nothing to map .. move on
+                                        continue;
+                                    }
+                                    GitRepository sourceRepo = null;
+                                    GitRepository targetRepo = null;
+
+                                    try
+                                    {
+                                        sourceRepo = sourceRepos.FirstOrDefault(r => r.Id.ToString().Equals(repoId, StringComparison.OrdinalIgnoreCase));
+
+                                        if (sourceRepo == null)
+                                        {
+                                            Console.WriteLine($"ERROR: Could not locate source repo [{repoId}] linked from work item [{workItem.Id}].");
+                                            continue;
+                                        }
+
+                                    }
+                                    catch (VssServiceException ex)
+                                    {
+                                        if (ex.Message.Contains("TF401019"))
+                                        {
+                                            Console.WriteLine($"ERROR: Could not locate source repo [{repoId}] linked from work item [{workItem.Id}].");
+                                            continue;
+                                        }
+                                        throw new Exception("Failed to get source repo.", ex);
+                                    }
+
+                                    var matchedRepos = new List<GitRepository>();
+                                    foreach (var tRepo in targetRepos)
+                                    {
+                                        if (tRepo.Name.EndsWith(sourceRepo.Name) || tRepo.Name.EndsWith(sourceRepo.Name.Replace(" ", "_")))
+                                        {
+                                            matchedRepos.Add(tRepo);
+                                        }
+                                    }
+
+                                    if (matchedRepos.Count > 1)
+                                    {
+                                        var skip = false;
+                                        while (targetRepo == null)
+                                        {
+                                            Console.WriteLine($"Repo [{sourceRepo.Name}] has matched to {matchedRepos.Count} repos in target.");
+                                            Console.WriteLine($"Select the correct mapping below:");
+                                            for (var i = 1; i <= matchedRepos.Count; i++)
+                                            {
+                                                Console.WriteLine($"    [{i}] - {matchedRepos[i - 1].ProjectReference.Name}\\{matchedRepos[i - 1].Name} ");
+                                            }
+                                            Console.WriteLine($"    [S] - Skip this repo ");
+                                            Console.WriteLine($"Enter an option to continue (1-{matchedRepos.Count}): ");
+
+                                            var input = Console.ReadKey();
+
+
+                                            if (input.KeyChar == 's' || input.KeyChar == 'S')
+                                            {
+                                                Console.WriteLine($"\r\nSkipped [{sourceRepo.Name}]");
+                                                skip = true;
+                                                break;
+                                            }
+                                            else
+                                            {
+                                                int.TryParse(new char[] { input.KeyChar }, out int selection);
+
+                                                if (selection > 0 && selection <= matchedRepos.Count)
+                                                {
+                                                    targetRepo = matchedRepos[selection - 1];
+                                                    Console.WriteLine($"\r\nMapped [{sourceRepo.Name}] to [{targetRepo.Name}] in target.");
+                                                    break;
+                                                }
+                                                else
+                                                {
+                                                    Console.WriteLine("\r\nInvalid input. Try again!");
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        if (skip) continue;
+                                    }
+                                    else
+                                    {
+                                        targetRepo = matchedRepos.FirstOrDefault();
+                                    }
+
+                                    if (targetRepo != null)
+                                    {
+                                        var attr = relation.Attributes.ToDictionary(x => x.Key.ToString(), x => x.Value);
+                                        attr.Remove("id");
+                                        jsonPatchDoc.Add(new JsonPatchOperation()
+                                        {
+                                            Operation = Operation.Remove,
+                                            Path = $"/relations/{relIx}"
+                                        });
+                                        jsonPatchDoc.Add(new JsonPatchOperation()
+                                        {
+                                            Operation = Operation.Add,
+                                            Path = $"/relations/-",
+                                            Value = new WorkItemRelation()
+                                            {
+                                                Rel = relation.Rel,
+                                                Url = $"{gitArtifactPrefix}{gitLinkType}/{string.Join("%2f", new string[] { targetRepo.ProjectReference.Id.ToString(), targetRepo.Id.ToString(), refId })}",
+                                                Attributes = attr
+                                            }
+                                        });
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"WARNING: Could not map {sourceRepo.Name} in target org.");
+                                    }
+                                    #endregion
+                                }
+                            }
+
+                            relIx += 1;
+                        }
+                        if (jsonPatchDoc.Count > 0)
+                        {
+                            System.IO.File.WriteAllText("./test.json", System.Text.Json.JsonSerializer.Serialize(jsonPatchDoc));
+                            Console.WriteLine($"      Removing [{jsonPatchDoc.Count(x => x.Operation == Operation.Remove)}] relations.");
+                            Console.WriteLine($"      Adding [{jsonPatchDoc.Count(x => x.Operation == Operation.Add)}] relations.");
                             try
                             {
-                                sourceRepo = sourceRepos.FirstOrDefault(r => r.Id.ToString().Equals(repoId, StringComparison.OrdinalIgnoreCase));
-
+                                await targetWorkItemClient.UpdateWorkItemAsync(jsonPatchDoc, workItem.Id.Value);
                             }
-                            catch (VssServiceException ex)
+                            catch (Exception ex)
                             {
-                                if (ex.Message.Contains("TF401019")) 
+                                if (ex.Message.Contains("Relation already exists."))
                                 {
-                                    Console.WriteLine($"ERROR: Could not locate source repo [{repoId}] linked from work item [{workItem.Id}].");
                                     continue;
                                 }
-                                throw new Exception("Failed to get source repo.", ex);
                             }
 
-                            foreach (var tRepo in targetRepos)
-                            {
-                                if (tRepo.Name.EndsWith(sourceRepo.Name) || tRepo.Name.EndsWith(sourceRepo.Name.Replace(" ", "_")))
-                                {
-                                    targetRepo = tRepo;
-                                    break;
-                                }
-                            }
-
-                            if (targetRepo != null)
-                            {
-                                var attr = relation.Attributes.ToDictionary(x => x.Key.ToString(), x => x.Value);
-                                attr.Remove("id");
-                                jsonPatchDoc.Add(new JsonPatchOperation()
-                                {
-                                    Operation = Operation.Remove,
-                                    Path = $"/relations/{relIx}"
-                                });
-                                jsonPatchDoc.Add(new JsonPatchOperation()
-                                {
-                                    Operation = Operation.Add,
-                                    Path = $"/relations/-",
-                                    Value = new WorkItemRelation()
-                                    {
-                                        Rel = relation.Rel,
-                                        Url = $"{gitArtifactPrefix}{gitLinkType}/{string.Join("%2f", new string[] { projectId, repoId, refId })}",
-                                        Attributes = attr
-                                    }
-                                });
-                            }
-                            else
-                            {
-                                Console.WriteLine($"ERROR: Failed to map {sourceRepo.Name}");
-                            }
                         }
-
-                        relIx += 1;
-                    }
-                    if (jsonPatchDoc.Count > 0)
-                    {
-                        System.IO.File.WriteAllText("./test.json", System.Text.Json.JsonSerializer.Serialize(jsonPatchDoc));
-                        Console.WriteLine($"      Removing [{jsonPatchDoc.Count(x => x.Operation == Operation.Remove)}] relations.");
-                        Console.WriteLine($"      Adding [{jsonPatchDoc.Count(x => x.Operation == Operation.Add)}] relations.");
-
-                        await targetWorkItemClient.UpdateWorkItemAsync(jsonPatchDoc, workItem.Id.Value, bypassRules: true, suppressNotifications: true);
-
                     }
                 }
             }

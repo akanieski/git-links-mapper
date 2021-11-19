@@ -3,7 +3,7 @@
 Map git links on work items in the target by tracking down the repo by name in the source.
 
 ```
-# for example: git-links-mapper.exe <source org url> <source org pat> <target org url> <target org pat> <target project
+# for example: git-links-mapper.exe <source org url> <source org pat> <target org url> <target org pat> <target project> <target area path>
 
 git-links-mapper.exe https://dev.azure.com/your_source_org <source org pat> https://dev.azure.com/your_target_org <target org pat> "SomeProject123"
 ```
