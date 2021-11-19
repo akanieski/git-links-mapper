@@ -68,6 +68,7 @@ namespace git_links_mapper
                 var targetProjects = await targetProjectClient.GetProjects();
                 var targetRepos = await targetGitClient.GetRepositoriesAsync();
                 var sourceRepos = await sourceGitClient.GetRepositoriesAsync();
+                var targetProject = targetProjects.FirstOrDefault(p => p.Name.Equals(config.TargetProjectName, StringComparison.Ordinal));
 
                 Console.WriteLine($"Processing batch of [{workItemIds.WorkItems.Count()}] work items in project [{config.TargetProjectName}] that contain external links and were migrated..");
 
@@ -75,6 +76,7 @@ namespace git_links_mapper
                 {
                     var workItem = await targetWorkItemClient.GetWorkItemAsync(result.Id, expand: WorkItemExpand.All);
                     JsonPatchDocument jsonPatchDoc = new JsonPatchDocument();
+                    var prLinks = new List<(int prNum, string url, string originalUrl)>();
 
                     if (workItem.Relations != null && workItem.Relations.Count > 0)
                     {
@@ -106,18 +108,39 @@ namespace git_links_mapper
                                         Operation = Operation.Remove,
                                         Path = $"/relations/{relIx}"
                                     });
-                                    jsonPatchDoc.Add(new JsonPatchOperation(){
+                                    jsonPatchDoc.Add(new JsonPatchOperation()
+                                    {
                                         Operation = Operation.Add,
                                         Path = "/relations/-",
                                         Value = new WorkItemRelation()
-                                            {
-                                                Rel = "AttachedFile",
-                                                Url = attachmentRef.Url,
-                                                Attributes = new Dictionary<string, object>() {
+                                        {
+                                            Rel = "AttachedFile",
+                                            Url = attachmentRef.Url,
+                                            Attributes = new Dictionary<string, object>() {
                                                     {"comment", $"PR Summary Migrated From Source PR #{refId}"}
                                                 }
-                                            }
+                                        }
                                     });
+                                    jsonPatchDoc.Add(new JsonPatchOperation()
+                                    {
+                                        Operation = Operation.Add,
+                                        Path = "/relations/-",
+                                        Value = new WorkItemRelation()
+                                        {
+                                            Rel = "Hyperlink",
+                                            Url = attachmentRef.Url,
+                                            Attributes = new Dictionary<string, object>() {
+                                                    {"comment", $"PR Summary Migrated From Source PR #{refId}"}
+                                                }
+                                        }
+                                    });
+                                    
+                                        var sourceRepo = sourceRepos.FirstOrDefault(r => r.Id.ToString().Equals(repoId, StringComparison.OrdinalIgnoreCase));
+                                        
+                                    prLinks.Add((
+                                        int.Parse(refId), 
+                                        attachmentRef.Url, 
+                                        sourceRepo == null ? "" : $"{config.SourceOrgUrl}/{sourceRepo.ProjectReference.Name}/_git/{sourceRepo.Name}/pullrequest/{refId}"));
                                     continue;
                                     #endregion
                                 }
@@ -248,6 +271,17 @@ namespace git_links_mapper
                             try
                             {
                                 await targetWorkItemClient.UpdateWorkItemAsync(jsonPatchDoc, workItem.Id.Value);
+
+                                if (prLinks.Count > 0)
+                                {
+                                    await targetWorkItemClient.AddCommentAsync(new CommentCreate()
+                                    {
+                                        Text = $"Work item migrated with links to the following pull requests: <br><ul>" 
+                                            + string.Join("<br>", prLinks.Select(pr => pr.originalUrl != "" 
+                                            ? $"<li><a href='{pr.originalUrl}' >Original PR #{pr.prNum}</a> - <a href='{pr.url}'>Raw Data</a></li>"
+                                            : $"<li><a>Original PR #{pr.prNum}</a> - <a href='{pr.url}'>Raw Data</a></li>"))
+                                    }, targetProject.Id, workItem.Id.Value);
+                                }
                             }
                             catch (Exception ex)
                             {
