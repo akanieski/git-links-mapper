@@ -56,7 +56,6 @@ namespace git_links_mapper
                     [System.TeamProject] = @project
                     AND [System.ID] > {currentId}
                     AND [System.ExternalLinkCount] > 0
-                    AND [Custom.ReflectedWorkItemId] <> ''
                     AND [System.AreaPath] UNDER '{config.TargetAreaPath}'
                 ORDER BY [System.Id]
             ";
