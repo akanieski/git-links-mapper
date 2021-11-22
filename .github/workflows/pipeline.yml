@@ -20,7 +20,7 @@ jobs:
         id: create_archive
         working-directory: ./bin/Debug/net6.0/win-x64/publish
         run: |
-          file=GitLinksMapper_$(date "+%Y-%m-%d_%S").zip
+          file=GitLinksMapper_$(date "+%Y-%m-%d_%H%M%S").zip
           path=../../../../../$file
           zip -r $path .
           echo "::set-output name=package::$file"
