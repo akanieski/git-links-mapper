@@ -21,6 +21,7 @@ namespace git_links_mapper
         public string TargetOrgPat { get; set; }
         public string TargetProjectName { get; set; }
         public string TargetAreaPath { get; set; }
+        public string TypeFilter { get; set; }
     }
     class Program
     {
@@ -55,6 +56,7 @@ namespace git_links_mapper
                 WHERE
                     [System.TeamProject] = @project
                     AND [System.ID] > {currentId}
+                    AND [System.WorkItemType] = {config.TypeFilter}
                     AND [System.ExternalLinkCount] > 0
                     AND [System.AreaPath] UNDER '{config.TargetAreaPath}'
                 ORDER BY [System.Id]
@@ -308,6 +310,7 @@ namespace git_links_mapper
                 config.TargetOrgPat = args[3];
                 config.TargetProjectName = args[4];
                 config.TargetAreaPath = args[5];
+                config.TypeFilter = args[6];
             }
             catch (Exception ex)
             {
