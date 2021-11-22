@@ -259,10 +259,11 @@ namespace git_links_mapper
                                                 Attributes = attr
                                             }
                                         });
+                                        Console.WriteLine($"Target Work Item: {workItem.Id} - Mapped {sourceRepo.ProjectReference.Name}\\{sourceRepo.Name} TO {targetRepo.ProjectReference.Name}\\{targetRepo.Name}");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"WARNING: Could not map {sourceRepo.Name} in target org.");
+                                        Console.WriteLine($"WARNING: Target Work Item: {workItem.Id} - Could not map {sourceRepo.Name} in target org.");
                                     }
                                     #endregion
                                 }
@@ -273,8 +274,9 @@ namespace git_links_mapper
                         if (jsonPatchDoc.Count > 0)
                         {
                             System.IO.File.WriteAllText("./test.json", System.Text.Json.JsonSerializer.Serialize(jsonPatchDoc));
-                            Console.WriteLine($"      Removing [{jsonPatchDoc.Count(x => x.Operation == Operation.Remove)}] relations.");
-                            Console.WriteLine($"      Adding [{jsonPatchDoc.Count(x => x.Operation == Operation.Add)}] relations.");
+                            Console.WriteLine($"Target Work Item: {workItem.Id}");
+                            Console.WriteLine($"      Removing [{jsonPatchDoc.Count(x => x.Operation == Operation.Remove)}]\tRemove Operations.");
+                            Console.WriteLine($"      Adding   [{jsonPatchDoc.Count(x => x.Operation == Operation.Add)}]\tAdd Operations.");
                             try
                             {
                                 await targetWorkItemClient.UpdateWorkItemAsync(jsonPatchDoc, workItem.Id.Value);
