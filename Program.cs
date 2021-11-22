@@ -22,6 +22,7 @@ namespace git_links_mapper
         public string TargetProjectName { get; set; }
         public string TargetAreaPath { get; set; }
         public string TypeFilter { get; set; }
+        public string[] ExcludeTargetProjects {get;set;} = new string[]{};
     }
     class Program
     {
@@ -69,7 +70,9 @@ namespace git_links_mapper
                 hasMore = workItemIds.WorkItems.Count() == BATCH_SIZE;
 
                 var targetProjects = await targetProjectClient.GetProjects();
-                var targetRepos = await targetGitClient.GetRepositoriesAsync();
+                var totalTargetRepos = await targetGitClient.GetRepositoriesAsync();
+                var targetRepos = totalTargetRepos.Where(r => config.ExcludeTargetProjects == null || !config.ExcludeTargetProjects.Any(t => t.Equals(r.ProjectReference.Name, StringComparison.OrdinalIgnoreCase)));
+                Console.WriteLine($"Found {totalTargetRepos.Count()} total target repos.. filtered out to {targetRepos.Count()} based on provided exclusion list of {string.Join(',', config.ExcludeTargetProjects)}.");
                 var sourceRepos = await sourceGitClient.GetRepositoriesAsync();
                 var targetProject = targetProjects.FirstOrDefault(p => p.Name.Equals(config.TargetProjectName, StringComparison.Ordinal));
 
@@ -194,7 +197,7 @@ namespace git_links_mapper
                                         var skip = false;
                                         while (targetRepo == null)
                                         {
-                                            Console.WriteLine($"Repo [{sourceRepo.Name}] has matched to {matchedRepos.Count} repos in target.");
+                                            Console.WriteLine($"Target Work Item: {workItem.Id} - Repo [{sourceRepo.Name}] has matched to {matchedRepos.Count} repos in target.");
                                             Console.WriteLine($"Select the correct mapping below:");
                                             for (var i = 1; i <= matchedRepos.Count; i++)
                                             {
@@ -314,6 +317,7 @@ namespace git_links_mapper
                 config.TargetProjectName = args[4];
                 config.TargetAreaPath = args[5];
                 config.TypeFilter = args[6];
+                config.ExcludeTargetProjects = args.Count() > 7  ? args[7].Split(',', StringSplitOptions.RemoveEmptyEntries) : new string[]{};
             }
             catch (Exception ex)
             {
