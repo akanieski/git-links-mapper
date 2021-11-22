@@ -55,7 +55,7 @@ namespace git_links_mapper
                 FROM workitems
                 WHERE
                     [System.TeamProject] = @project
-                    AND [System.ID] > {currentId}
+                    {(currentId == 0 ? $"" : $" AND [System.ID] > {currentId}")}
                     AND [System.WorkItemType] = '{config.TypeFilter}'
                     AND [System.ExternalLinkCount] > 0
                     AND [System.AreaPath] UNDER '{config.TargetAreaPath}'
