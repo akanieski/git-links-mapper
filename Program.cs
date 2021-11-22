@@ -33,6 +33,8 @@ namespace git_links_mapper
             var sourceConnection = new VssConnection(new Uri(config.SourceOrgUrl), new Microsoft.VisualStudio.Services.Common.VssBasicCredential("System Migrator", config.SourceOrgPat));
             var targetConnection = new VssConnection(new Uri(config.TargetOrgUrl), new Microsoft.VisualStudio.Services.Common.VssBasicCredential("System Migrator", config.TargetOrgPat));
 
+            sourceConnection.Settings.SendTimeout = TimeSpan.FromMinutes(5);
+
             var targetProjectClient = targetConnection.GetClient<ProjectHttpClient>();
             var targetWorkItemClient = targetConnection.GetClient<WorkItemTrackingHttpClient>();
             var sourceGitClient = sourceConnection.GetClient<GitHttpClient>();
@@ -57,10 +59,10 @@ namespace git_links_mapper
                     [System.TeamProject] = @project
                     {(currentId == 0 ? $"" : $" AND [System.ID] > {currentId}")}
                     AND [System.WorkItemType] = '{config.TypeFilter}'
-                    AND [System.ExternalLinkCount] > 0
+                    
                     AND [System.AreaPath] UNDER '{config.TargetAreaPath}'
                 ORDER BY [System.Id]
-            ";
+            "; 
 
                 // Let's get target work items
                 var workItemIds = await targetWorkItemClient.QueryByWiqlAsync(queryForItems, project: config.TargetProjectName, top: BATCH_SIZE);
@@ -94,6 +96,12 @@ namespace git_links_mapper
                                 var projectId = split.Take(1).FirstOrDefault();
                                 var repoId = split.Skip(1).Take(1).FirstOrDefault();
                                 var refId = string.Join('/', split.Skip(2));
+
+                                if (targetProjects.Any(x => x.Id.ToString().Equals(projectId, StringComparison.Ordinal)))
+                                {
+                                    // repo already exists on target.. nothing to map .. move on
+                                    continue;
+                                }
 
                                 if (gitLinkType.ToLower() == "pullrequestid")
                                 {
@@ -148,11 +156,6 @@ namespace git_links_mapper
                                 else
                                 {
                                     #region Handle Branch/Commit based git links ..
-                                    if (targetProjects.Any(x => x.Id.ToString().Equals(projectId, StringComparison.Ordinal)))
-                                    {
-                                        // repo already exists on target.. nothing to map .. move on
-                                        continue;
-                                    }
                                     GitRepository sourceRepo = null;
                                     GitRepository targetRepo = null;
 
