@@ -27,7 +27,7 @@ namespace git_links_mapper
     }
     class Program
     {
-        static int BATCH_SIZE = 1000;
+        static int BATCH_SIZE = 100;
         static async Task Main(string[] args)
         {
             Config config = ParseConfig(args);
@@ -85,7 +85,7 @@ namespace git_links_mapper
                 var targetRepos = totalTargetRepos.Where(r => config.ExcludeTargetProjects == null || !config.ExcludeTargetProjects.Any(t => t.Equals(r.ProjectReference.Name, StringComparison.OrdinalIgnoreCase)));
                 Console.WriteLine($"Found {totalTargetRepos.Count()} total target repos.. filtered out to {targetRepos.Count()} based on provided exclusion list of {string.Join(',', config.ExcludeTargetProjects)}.");
                 var sourceRepos = await sourceGitClient.GetRepositoriesAsync();
-                var targetProject = targetProjects.FirstOrDefault(p => p.Name.Equals(config.TargetProjectName, StringComparison.Ordinal));
+                var targetProject = targetProjects.FirstOrDefault(p => p.Name.Equals(config.TargetProjectName, StringComparison.OrdinalIgnoreCase));
 
                 Console.WriteLine($"Processing batch of [{workItemIds.WorkItems.Count()}] work items in project [{config.TargetProjectName}] that contain external links and were migrated..");
 
@@ -111,7 +111,7 @@ namespace git_links_mapper
                                 var repoId = split.Skip(1).Take(1).FirstOrDefault();
                                 var refId = string.Join('/', split.Skip(2));
 
-                                if (targetProjects.Any(x => x.Id.ToString().Equals(projectId, StringComparison.Ordinal)))
+                                if (targetProjects.Any(x => x.Id.ToString().Equals(projectId, StringComparison.OrdinalIgnoreCase)))
                                 {
                                     // repo already exists on target.. nothing to map .. move on
                                     continue;
