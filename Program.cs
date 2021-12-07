@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.TeamFoundation.Core.WebApi;
+using Microsoft.TeamFoundation.Dashboards.WebApi;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
@@ -37,9 +38,18 @@ namespace git_links_mapper
             sourceConnection.Settings.SendTimeout = TimeSpan.FromMinutes(5);
 
             var targetProjectClient = targetConnection.GetClient<ProjectHttpClient>();
+
+            var dashboardClient = targetConnection.GetClient<DashboardHttpClient>();
+
             var targetWorkItemClient = targetConnection.GetClient<WorkItemTrackingHttpClient>();
             var sourceGitClient = sourceConnection.GetClient<GitHttpClient>();
             var targetGitClient = targetConnection.GetClient<GitHttpClient>();
+
+            // dashboardClient.GetDashboardsByProjectAsync(new Microsoft.TeamFoundation.Core.WebApi.Types.TeamContext("projectId"));
+            // dashboardClient.GetDashboardAsync(new Microsoft.TeamFoundation.Core.WebApi.Types.TeamContext("projectId"), dashboardId)
+            // dashboardClient.ReplaceDashboardAsync(dashboard, new Microsoft.TeamFoundation.Core.WebApi.Types.TeamContext("projectId"), dashboardId)
+
+            //dashboardClient.CreateDashboardAsync(dashboard, teamContext)
 
             int currentId = 0;
             bool hasMore = true;
@@ -67,6 +77,7 @@ namespace git_links_mapper
 
                 // Let's get target work items
                 var workItemIds = await targetWorkItemClient.QueryByWiqlAsync(queryForItems, project: config.TargetProjectName, top: BATCH_SIZE);
+                currentId = workItemIds.WorkItems.LastOrDefault()?.Id ?? currentId;
                 hasMore = workItemIds.WorkItems.Count() == BATCH_SIZE;
 
                 var targetProjects = await targetProjectClient.GetProjects();
