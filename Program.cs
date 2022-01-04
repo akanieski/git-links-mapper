@@ -87,7 +87,7 @@ namespace git_links_mapper
                 var sourceRepos = await sourceGitClient.GetRepositoriesAsync();
                 var targetProject = targetProjects.FirstOrDefault(p => p.Name.Equals(config.TargetProjectName, StringComparison.OrdinalIgnoreCase));
 
-                Console.WriteLine($"Processing batch of [{workItemIds.WorkItems.Count()}] work items in project [{config.TargetProjectName}] that contain external links and were migrated..");
+                Console.WriteLine($"Processing batch of [{workItemIds.WorkItems.Count()}] work items in project [{config.TargetProjectName}] that MAY contain external links ..");
 
                 foreach (var result in workItemIds.WorkItems)
                 {
