@@ -68,7 +68,9 @@ namespace git_links_mapper
                 FROM workitems
                 WHERE
                     [System.TeamProject] = @project
+                    
                     {(currentId == 0 ? $"" : $" AND [System.ID] > {currentId}")}
+
                     AND [System.WorkItemType] = '{config.TypeFilter}'
                     
                     AND [System.AreaPath] UNDER '{config.TargetAreaPath}'
@@ -119,6 +121,7 @@ namespace git_links_mapper
 
                                 if (gitLinkType.ToLower() == "pullrequestid")
                                 {
+                                    continue;
                                     #region Handle Pull Request based git links ..
 
                                     var pr = await sourceGitClient.GetPullRequestAsync(projectId, repoId, int.Parse(refId), 999, includeCommits: true, includeWorkItemRefs: true);
@@ -144,6 +147,7 @@ namespace git_links_mapper
                                                 }
                                         }
                                     });
+                                    /*
                                     jsonPatchDoc.Add(new JsonPatchOperation()
                                     {
                                         Operation = Operation.Add,
@@ -156,7 +160,7 @@ namespace git_links_mapper
                                                     {"comment", $"PR Summary Migrated From Source PR #{refId}"}
                                                 }
                                         }
-                                    });
+                                    });*/
                                     
                                         var sourceRepo = sourceRepos.FirstOrDefault(r => r.Id.ToString().Equals(repoId, StringComparison.OrdinalIgnoreCase));
                                         
@@ -309,6 +313,7 @@ namespace git_links_mapper
                                 {
                                     continue;
                                 }
+                                Console.WriteLine($"ERROR: Failed to update work item [{result.Id}]! {ex.ToString()}");
                             }
 
                         }
